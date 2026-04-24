@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>SCORM Wrapper</title>
+  <style>
+    html, body {
+	  height: 100%;
+	  margin: 0;
+	  padding: 0;
+	}
+	
+	#scoFrame {
+	  width: 100%;
+	  height: 100%;
+	  border: 0;
+	}
+  </style>
+  <script>
+    // Parse query string 
+	const params = new URLSearchParams(window.location.search); 
+	const AICC_URL = params.get("AICC_URL"); 
+	const AICC_SID = params.get("AICC_SID");
+	const AICC_VERSION = "3.0";
+	
+	console.log("AICC_URL:", AICC_URL); 
+	console.log("AICC_SID:", AICC_SID);
+	
+	// Simple SCORM 1.2 runtime store 
+	const scormData = { 
+		"cmi.core.credit": "", 
+		"cmi.core.exit": "", 
+		"cmi.core.lesson_location": "", 
+		"cmi.core.lesson_mode": "", 
+		"cmi.core.lesson_status": "not attempted", 
+		"cmi.core.score.raw" : "", 
+		"cmi.core.student_id": "", 
+		"cmi.core.student_name": "", 
+		"cmi.core.total_time": "", 
+		"cmi.core.session_time": "",
+		"cmi.student_data.mastery_score": "", 
+		"cmi.student_data.max_time_allowed": "", 
+		"cmi.student_data.time_limit_action": "", 
+		"cmi.suspend_data": "" 
+	};
+	
+    let initialized = false;
+	let startTime = performance.now();
+	
+    window.API = {
+		LMSInitialize: function (param) {
+			console.log("LMSInitialize", param);
+			if (!initialized) {
+				try {
+					startTime = performance.now();
+					// Optional: fetch existing AICC state from Moodle
+					const xhr = new XMLHttpRequest();
+					xhr.open("POST", AICC_URL, false);
+					xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+				  
+					const body = new URLSearchParams({ 
+						command: "GetParam", 
+						session_id: AICC_SID, 
+						version: AICC_VERSION
+					}).toString();
+					
+					xhr.send(body);
+				  
+					if(xhr.status === 200) {
+						const text = xhr.responseText;
+						const match = text.match(/aicc_data=(.*)$/is); 
+						const aiccData = match[1].trim()
+						// Parse sections 
+						const sections = {}; 
+						let current = null; 
+						aiccData.split(/\r?\n/).forEach(line => {
+							line = line.trim(); 
+							if (!line) return; 
+							if (line.startsWith("[") && line.endsWith("]")) { 
+								current = line.slice(1, -1); 
+								sections[current] = {}; 
+							} else if (current && line.includes("=")) { 
+								const [key, value] = line.split("="); 
+								sections[current][key.trim()] = value.trim(); 
+							} 
+						}); 
+						console.log("LMSInitialize aiccData: ", aiccData);
+						
+						// Map AICC → SCORM 
+						if (sections.Core) { 
+							scormData["cmi.core.student_id"] = sections.Core.Student_ID || "";
+							scormData["cmi.core.student_name"] = sections.Core.Student_Name || "";
+							scormData["cmi.core.credit"] = sections.Core.Credit || "";
+							scormData["cmi.core.lesson_status"] = sections.Core.Lesson_Status?.split(",")[0].trim() || "not attempted"; 
+							scormData["cmi.core.score.raw"] = sections.Core.Score || ""; 
+							scormData["cmi.core.lesson_location"] = sections.Core.Lesson_Location || ""; 
+							scormData["cmi.core.total_time"] = sections.Core.Time || "";
+							scormData["cmi.core.lesson_mode"] = sections.Core.Lesson_Mode || "";
+							scormData["cmi.core.session_time"] = "00:00:00";
+							scormData["cmi.student_data.mastery_score"] = sections.Student_Data.Mastery_Score || "";
+							scormData["cmi.student_data.max_time_allowed"] = sections.Student_Data.Max_Time_Allowed || "";
+							scormData["cmi.student_data.time_limit_action"] = sections.Student_Data.Time_Limit_Action || "";
+						} 
+						if (sections.Core_Lesson) { 
+							scormData["cmi.suspend_data"] = Object.values(sections.Core_Lesson).join("\n") || ""; 
+						} 
+						console.log("Updated scormData:", scormData);
+					} else {
+						console.error("LMS connection failed with status:", xhr.status);
+						return "false";
+					} 
+				} catch (e) {
+					console.error("Synchronous request failed:", e);
+					return "false";
+				}
+				initialized = true;
+			}
+			return true;
+		},
+		LMSSetValue: function (key, value) {
+			console.log("LMSSetValue", key, value);
+			scormData[key] = value;
+			return "true";
+		},
+		LMSGetValue: function (key) {
+			console.log("LMSGetValue", key);
+			const value = scormData[key];
+			return value !== undefined ? value : "";
+		},
+		LMSCommit: function (param) {
+			if (!initialized) {
+				return "false";
+			}
+			console.log("LMSCommit", AICC_VERSION, "PutParam", AICC_SID);
+			const aiccDataTemplate = `[CORE]
+				Lesson_Location=
+				Lesson_Status={{LESSON_STATUS}}
+				Score=75
+				Time={{SESSION_TIME}}
+				[CORE_LESSON]
+				Suspend_Data={{SUSPEND_DATA}}
+				[OBJECTIVES_STATUS]
+				`; 
+			const xhr = new XMLHttpRequest();
+			xhr.open("POST", AICC_URL, false);
+			xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+			const sessionTime = this.getSessionTime();
+			let aiccData = aiccDataTemplate
+				.replace("{{LESSON_STATUS}}", scormData["cmi.core.lesson_status"])
+				.replace("{{SUSPEND_DATA}}", scormData["cmi.suspend_data"])
+				.replace("{{SESSION_TIME}}", sessionTime);
+			console.log("LMSCommit aiccData: ", aiccData);
+		
+			const body = new URLSearchParams({ 
+				command: "PutParam", 
+				session_id: AICC_SID, 
+				version: AICC_VERSION,
+				aicc_data: aiccData
+			}).toString();
+		
+			fetch(AICC_URL, {
+				method: "POST",
+				headers: { "Content-Type": "application/x-www-form-urlencoded" },
+				body: new URLSearchParams({ command: "PutParam", session_id: AICC_SID, version: AICC_VERSION, aicc_data: aiccData }) 
+			}).then(r => r.text()).then(console.log); 
+			return true;
+		},
+		LMSFinish: function () {
+			if (!initialized) {
+				return "false";
+			}
+			console.log("LMSFinish");
+			const aiccDataTemplate = `[CORE]
+				Lesson_Location=
+				Lesson_Status={{LESSON_STATUS}}
+				Score=
+				Time={{SESSION_TIME}}
+				[CORE_LESSON]
+				Suspend_Data={{SUSPEND_DATA}}
+				[OBJECTIVES_STATUS]
+				`; 
+			const sessionTime = this.getSessionTime();
+			let aiccData = aiccDataTemplate
+				.replace("{{LESSON_STATUS}}", "completed,logout")
+				.replace("{{SUSPEND_DATA}}", scormData["cmi.suspend_data"])
+				.replace("{{SESSION_TIME}}", sessionTime);
+			var fd = new FormData();
+			fd.append("command", "exitparam");
+			fd.append("version", AICC_VERSION);
+			fd.append("session_id", AICC_SID);
+			fd.append("aicc_data", aiccData);
+			var success = navigator.sendBeacon(AICC_URL, fd);
+			initialized = false;
+			return true;
+		},
+		LMSGetLastError: function () { 
+			console.log("LMSGetLastError");
+			return "0"; // "0" = no error 
+		},
+		LMSGetErrorString: function (errorCode) {
+			console.log("LMSGetErrorString");
+			return "No error";
+		},
+		LMSGetDiagnostic: function (errorCode) {
+			console.log("LMSGetDiagnostic");
+			return ""; 
+		},
+		getSessionTime(){
+			const elapsedTime = performance.now() - startTime;
+			const hours = Math.floor(elapsedTime / 3600000);
+			const minutes = Math.floor((elapsedTime % 3600000) / 60000);
+			const seconds = Math.floor((elapsedTime % 60000) / 1000);
+			const fractions = Math.floor(elapsedTime % 10);
+			const pad = (num, size) => String(num).padStart(size, '0');
+			return `${pad(hours, 4)}:${pad(minutes, 2)}:${pad(seconds, 2)}.${pad(fractions, 2)}`;
+		}
+    };
+  </script>
+</head>
+<body>
+  <iframe id="scoFrame" src="" style="width: 99vw; height:99vh; border: 0;"></iframe>
+  <!-- iframe src needs to be set to the initial html page EG playing/Playing.html -->
+</body>
+</html>
+
