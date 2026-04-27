@@ -67,7 +67,12 @@
 				  
 					if(xhr.status === 200) {
 						const text = xhr.responseText;
-						const match = text.match(/aicc_data=(.*)$/is); 
+						const match = text.match(/aicc_data=(.*)$/is);
+						if(!match){
+							console.error("Invalid AICC response received. Expected AICC_DATA, got HTML/Error.");
+							initialized = true;
+							return true;
+						}
 						const aiccData = match[1].trim()
 						// Parse sections 
 						const sections = {}; 
