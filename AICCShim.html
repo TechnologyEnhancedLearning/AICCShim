@@ -139,7 +139,7 @@
 			const aiccDataTemplate = `[CORE]
 				Lesson_Location=
 				Lesson_Status={{LESSON_STATUS}}
-				Score=75
+				Score={{SCORE}}
 				Time={{SESSION_TIME}}
 				[CORE_LESSON]
 				Suspend_Data={{SUSPEND_DATA}}
@@ -152,7 +152,8 @@
 			let aiccData = aiccDataTemplate
 				.replace("{{LESSON_STATUS}}", scormData["cmi.core.lesson_status"])
 				.replace("{{SUSPEND_DATA}}", scormData["cmi.suspend_data"])
-				.replace("{{SESSION_TIME}}", sessionTime);
+				.replace("{{SESSION_TIME}}", sessionTime)
+				.replace("{{SCORE}}", scormData["cmi.core.score.raw"]);
 			console.log("LMSCommit aiccData: ", aiccData);
 		
 			const body = new URLSearchParams({ 
@@ -177,7 +178,7 @@
 			const aiccDataTemplate = `[CORE]
 				Lesson_Location=
 				Lesson_Status={{LESSON_STATUS}}
-				Score=
+				Score={{SCORE}}
 				Time={{SESSION_TIME}}
 				[CORE_LESSON]
 				Suspend_Data={{SUSPEND_DATA}}
@@ -187,7 +188,8 @@
 			let aiccData = aiccDataTemplate
 				.replace("{{LESSON_STATUS}}", "completed,logout")
 				.replace("{{SUSPEND_DATA}}", scormData["cmi.suspend_data"])
-				.replace("{{SESSION_TIME}}", sessionTime);
+				.replace("{{SESSION_TIME}}", sessionTime)
+				.replace("{{SCORE}}", scormData["cmi.core.score.raw"]);
 			var fd = new FormData();
 			fd.append("command", "exitparam");
 			fd.append("version", AICC_VERSION);
