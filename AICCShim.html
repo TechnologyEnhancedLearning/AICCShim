@@ -137,7 +137,7 @@
 			}
 			console.log("LMSCommit", AICC_VERSION, "PutParam", AICC_SID);
 			const aiccDataTemplate = `[CORE]
-				Lesson_Location=
+				Lesson_Location={{LESSON_LOCATION}}
 				Lesson_Status={{LESSON_STATUS}}
 				Score={{SCORE}}
 				Time={{SESSION_TIME}}
@@ -150,6 +150,7 @@
 			xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
 			const sessionTime = this.getSessionTime();
 			let aiccData = aiccDataTemplate
+			    .replace("{{LESSON_LOCATION}}", scormData["cmi.core.lesson_location"])
 				.replace("{{LESSON_STATUS}}", scormData["cmi.core.lesson_status"])
 				.replace("{{SUSPEND_DATA}}", scormData["cmi.suspend_data"])
 				.replace("{{SESSION_TIME}}", sessionTime)
@@ -176,7 +177,7 @@
 			}
 			console.log("LMSFinish");
 			const aiccDataTemplate = `[CORE]
-				Lesson_Location=
+				Lesson_Location={{LESSON_LOCATION}}
 				Lesson_Status={{LESSON_STATUS}}
 				Score={{SCORE}}
 				Time={{SESSION_TIME}}
@@ -186,7 +187,8 @@
 				`; 
 			const sessionTime = this.getSessionTime();
 			let aiccData = aiccDataTemplate
-				.replace("{{LESSON_STATUS}}", "completed,logout")
+			    .replace("{{LESSON_LOCATION}}", scormData["cmi.core.lesson_location"])
+				.replace("{{LESSON_STATUS}}", scormData["cmi.core.lesson_status"])
 				.replace("{{SUSPEND_DATA}}", scormData["cmi.suspend_data"])
 				.replace("{{SESSION_TIME}}", sessionTime)
 				.replace("{{SCORE}}", scormData["cmi.core.score.raw"]);
